@@ -810,13 +810,14 @@ class TCPRelay(object):
         if sock:
             logging.log(shell.VERBOSE_LEVEL, 'fd %d %s', fd,
                         eventloop.EVENT_NAMES.get(event, event))
+        # 如果这个sock是自身的_server_socket,则建立连接
         if sock == self._server_socket:
             if event & eventloop.POLL_ERR:
                 # TODO
                 raise Exception('server_socket error')
             try:
                 logging.debug('accept')
-                conn = self._server_socket.accept()
+                conn = self._server_socket.accept() # 返回(address, port)
                 TCPRelayHandler(self, self._fd_to_handlers,
                                 self._eventloop, conn[0], self._config,
                                 self._dns_resolver, self._is_local)

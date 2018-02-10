@@ -110,6 +110,9 @@ class SelectLoop(object):
         self._x_list = set()
 
     def poll(self, timeout):
+        # The return value is a tuple of three lists corresponding to the first three
+        # arguments; each contains the subset of the corresponding file descriptors
+        # that are ready.
         r, w, x = select.select(self._r_list, self._w_list, self._x_list,
                                 timeout)
         results = defaultdict(lambda: POLL_NULL)
@@ -119,6 +122,7 @@ class SelectLoop(object):
         return results.items()
 
     def register(self, fd, mode):
+        # 添加监听的事件
         if mode & POLL_IN:
             self._r_list.add(fd)
         if mode & POLL_OUT:
@@ -157,17 +161,18 @@ class EventLoop(object):
         else:
             raise Exception('can not find any available functions in select '
                             'package')
-        self._fdmap = {}  # (f, handler)
+        self._fdmap = {}  # 值为(f, handler), 键为fd(文件描述符), fd = f.fileno()
         self._last_time = time.time()
         self._periodic_callbacks = [] # 存放需要定期执行的回调函数, 如定期清理过期的垃圾socket等
         self._stopping = False
         logging.debug('using event model: %s', model)
 
     def poll(self, timeout=None):
-        events = self._impl.poll(timeout)
+        events = self._impl.poll(timeout) # 返回二元组列表 [(文件描述符, 事件),...]
         return [(self._fdmap[fd][0], fd, event) for fd, event in events]
 
     def add(self, f, mode, handler):
+        # handler 位TCPRelay或者UDPRelay的实例
         fd = f.fileno()
         self._fdmap[fd] = (f, handler)
         self._impl.register(fd, mode)
@@ -190,11 +195,14 @@ class EventLoop(object):
     def stop(self):
         self._stopping = True
 
+    # 程序入口
     def run(self):
         events = []
+        # 死循环, 直到self._stopping变为False
         while not self._stopping:
             asap = False
             try:
+                # 调用合适的多路复用函数, 获取所监听端口的事件
                 events = self.poll(TIMEOUT_PRECISION)
             except (OSError, IOError) as e:
                 if errno_from_exception(e) in (errno.EPIPE, errno.EINTR):
@@ -209,8 +217,9 @@ class EventLoop(object):
                     traceback.print_exc()
                     continue
 
+            # fd => file descriptor, 是一个int类型的值
             for sock, fd, event in events:
-                handler = self._fdmap.get(fd, None)
+                handler = self._fdmap.get(fd, None) # value: (f, handler)
                 if handler is not None:
                     handler = handler[1]
                     try:
