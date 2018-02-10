@@ -108,20 +108,21 @@ class NoAcceptableMethods(Exception):
 class TCPRelayHandler(object):
     def __init__(self, server, fd_to_handlers, loop, local_sock, config,
                  dns_resolver, is_local):
-        self._server = server
+        self._server = server  # TCPRelay 实例
         self._fd_to_handlers = fd_to_handlers
-        self._loop = loop
-        self._local_sock = local_sock
+        self._loop = loop # EventLoop 实例
+        self._local_sock = local_sock # 连接的客户端
         self._remote_sock = None
         self._config = config
         self._dns_resolver = dns_resolver
 
         # TCP Relay works as either sslocal or ssserver
         # if is_local, this is sslocal
-        self._is_local = is_local
+        self._is_local = is_local # ssserver:False  sslocal:True
         self._stage = STAGE_INIT
         self._encryptor = encrypt.Encryptor(config['password'],
                                             config['method'])
+        # 是否开启一次性验证, 可Google了解什么是一次性验证
         if 'one_time_auth' in config and config['one_time_auth']:
             self._ota_enable = True
         else:
@@ -135,7 +136,7 @@ class TCPRelayHandler(object):
         self._data_to_write_to_remote = []
         self._upstream_status = WAIT_STATUS_READING
         self._downstream_status = WAIT_STATUS_INIT
-        self._client_address = local_sock.getpeername()[:2]
+        self._client_address = local_sock.getpeername()[:2] #返回套接字的远程地址，返回值通常是一个tuple(ipaddr, port)
         self._remote_address = None
         if 'forbidden_ip' in config:
             self._forbidden_iplist = config['forbidden_ip']
@@ -144,8 +145,12 @@ class TCPRelayHandler(object):
         if is_local:
             self._chosen_server = self._get_a_server()
         fd_to_handlers[local_sock.fileno()] = self
-        local_sock.setblocking(False)
+        local_sock.setblocking(False) # 设置为非阻塞模式
+        # the TCP_NODELAY option can be used to tell the operating system that any data
+        # passed to socket.send() should immediately be sent to the client without being
+        # buffered by the operating system
         local_sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
+        # 添加到EventLoop实例中去, 监听POLL_IN和POLL_ERR事件
         loop.add(local_sock, eventloop.POLL_IN | eventloop.POLL_ERR,
                  self._server)
         self.last_activity = 0
@@ -484,11 +489,13 @@ class TCPRelayHandler(object):
         return data_len + sha110 + data
 
     def _handle_stage_stream(self, data):
+        # 是sslocal的话
         if self._is_local:
             if self._ota_enable:
                 data = self._ota_chunk_data_gen(data)
             data = self._encryptor.encrypt(data)
             self._write_to_sock(data, self._remote_sock)
+        # 是ssserver的话
         else:
             if self._ota_enable:
                 self._ota_chunk_data(data, self._write_to_sock_remote)
@@ -537,6 +544,7 @@ class TCPRelayHandler(object):
     def _on_local_read(self):
         # handle all local read events and dispatch them to methods for
         # each stage
+        # 读取客户端发送过来的数据
         if not self._local_sock:
             return
         is_local = self._is_local
@@ -551,6 +559,7 @@ class TCPRelayHandler(object):
             self.destroy()
             return
         self._update_activity(len(data))
+        # 是ssserver的话将接收到的数据解密
         if not is_local:
             data = self._encryptor.decrypt(data)
             if not data:
@@ -624,6 +633,7 @@ class TCPRelayHandler(object):
             logging.error(eventloop.get_sock_error(self._remote_sock))
         self.destroy()
 
+    # 真正做的事情是从这个函数开始的
     def handle_event(self, sock, event):
         # handle all events in this handler and dispatch them to methods
         if self._stage == STAGE_DESTROYED:
@@ -817,7 +827,9 @@ class TCPRelay(object):
                 raise Exception('server_socket error')
             try:
                 logging.debug('accept')
-                conn = self._server_socket.accept() # 返回(address, port)
+                conn = self._server_socket.accept() # 返回(socket object, address info)
+                # 对于每一个监听的端口, 都会有一个 TCPRelay, 对于每一次连接, 都有 TCPRelayHandler 来处理这个请求
+                # 将TCPRelayHandler实例添加到self._fd_to_handlers中去了
                 TCPRelayHandler(self, self._fd_to_handlers,
                                 self._eventloop, conn[0], self._config,
                                 self._dns_resolver, self._is_local)
