@@ -144,6 +144,7 @@ class SelectLoop(object):
 
 class EventLoop(object):
     def __init__(self):
+        # 初始化时选择合适的IO多路复用机制
         if hasattr(select, 'epoll'):
             self._impl = select.epoll()
             model = 'epoll'
@@ -158,7 +159,7 @@ class EventLoop(object):
                             'package')
         self._fdmap = {}  # (f, handler)
         self._last_time = time.time()
-        self._periodic_callbacks = []
+        self._periodic_callbacks = [] # 存放需要定期执行的回调函数, 如定期清理过期的垃圾socket等
         self._stopping = False
         logging.debug('using event model: %s', model)
 
