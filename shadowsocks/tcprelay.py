@@ -298,7 +298,14 @@ class TCPRelayHandler(object):
                     self.destroy()
 
     def _handle_stage_addr(self, data):
+        """
+        对于ssserver, 需要从收到的data中去除header再保存到缓冲区, 因为对于remote而言代理是透明的
+        DNS解析的是remote,即header中的DST.ADDR
+        :param data:
+        :return:
+        """
         try:
+            # 是sslocal的话
             if self._is_local:
                 cmd = common.ord(data[1])
                 if cmd == CMD_UDP_ASSOCIATE:
@@ -323,6 +330,7 @@ class TCPRelayHandler(object):
                     logging.error('unknown command %d', cmd)
                     self.destroy()
                     return
+            # 解析SOCKS5协议数据的头信息
             header_result = parse_header(data)
             if header_result is None:
                 raise Exception('can not parse header')
@@ -400,6 +408,7 @@ class TCPRelayHandler(object):
         return remote_sock
 
     def _handle_dns_resolved(self, result, error):
+        # result => (hostname, ip)
         if error:
             self._log_error(error)
             self.destroy()
