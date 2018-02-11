@@ -335,6 +335,7 @@ class TCPRelayHandler(object):
             if header_result is None:
                 raise Exception('can not parse header')
             addrtype, remote_addr, remote_port, header_length = header_result
+            # 调试输出=> connecting www.google.com:443 from 123.232.37.134:64907
             logging.info('connecting %s:%d from %s:%d' %
                          (common.to_str(remote_addr), remote_port,
                           self._client_address[0], self._client_address[1]))
@@ -380,6 +381,7 @@ class TCPRelayHandler(object):
                     self._ota_chunk_data(data,
                                          self._data_to_write_to_remote.append)
                 elif len(data) > header_length:
+                    # 将要发送到remote server的数据写入缓冲区
                     self._data_to_write_to_remote.append(data[header_length:])
                 # notice here may go into _handle_dns_resolved directly
                 self._dns_resolver.resolve(remote_addr,

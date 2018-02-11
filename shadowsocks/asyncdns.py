@@ -310,6 +310,7 @@ class DNSResolver(object):
             self._hosts['localhost'] = '127.0.0.1'
 
     def add_to_loop(self, loop):
+        # loop 为EventLoop实例
         if self._loop:
             raise Exception('already add to loop')
         self._loop = loop
@@ -402,6 +403,7 @@ class DNSResolver(object):
             self._sock.sendto(req, (server, 53))
 
     def resolve(self, hostname, callback):
+        # ? callback 在哪儿被调用的 ?
         if type(hostname) != bytes:
             hostname = hostname.encode('utf8')
         if not hostname:
