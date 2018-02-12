@@ -88,6 +88,9 @@ def build_address(address):
 
 def build_request(address, qtype):
     request_id = os.urandom(2)
+    # H => integer 2 个字节
+    # B => integer 1 个字节
+    # ! => network (= big-endian)
     header = struct.pack('!BBHHHH', 1, 0, 1, 0, 0, 0)
     addr = build_address(address)
     qtype_qclass = struct.pack('!HH', qtype, QCLASS_IN)
@@ -260,18 +263,19 @@ class DNSResolver(object):
             self._servers = None
             self._parse_resolv()
         else:
-            self._servers = server_list
+            self._servers = server_list # 本机DNS
         if prefer_ipv6:
             self._QTYPES = [QTYPE_AAAA, QTYPE_A]
         else:
             self._QTYPES = [QTYPE_A, QTYPE_AAAA]
-        self._parse_hosts()
+        self._parse_hosts()  # 读取 /etc/hosts 中的配置
         # TODO monitor hosts change and reload hosts
         # TODO parse /etc/gai.conf and follow its rules
 
     def _parse_resolv(self):
         self._servers = []
         try:
+            # DNS 解析的配置文件
             with open('/etc/resolv.conf', 'rb') as f:
                 content = f.readlines()
                 for line in content:
@@ -315,11 +319,15 @@ class DNSResolver(object):
             raise Exception('already add to loop')
         self._loop = loop
         # TODO when dns server is IPv6
+        # 使用UDP协议
+        # 对于udp，使用socket.recvfrom和socket.sendto
+        # 因为无状态,不需要socket_connect和socket_listen,
+        # 创建时使用SOCK_DGRAM和SOL_UDP两个参数
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM,
                                    socket.SOL_UDP)
         self._sock.setblocking(False)
         loop.add(self._sock, eventloop.POLL_IN, self)
-        loop.add_periodic(self.handle_periodic)
+        loop.add_periodic(self.handle_periodic) # 添加需要周期性执行的函数
 
     def _call_callback(self, hostname, ip, error=None):
         callbacks = self._hostname_to_cb.get(hostname, [])
@@ -361,6 +369,8 @@ class DNSResolver(object):
                             self._call_callback(hostname, None)
                             break
 
+    # DNSResolver 的 handle_event 与 TCPRelay 和 UDPRelay 都不一样,
+    # 因为它不需要分发处理
     def handle_event(self, sock, fd, event):
         if sock != self._sock:
             return
@@ -371,9 +381,14 @@ class DNSResolver(object):
             # TODO when dns server is IPv6
             self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM,
                                        socket.SOL_UDP)
-            self._sock.setblocking(False)
-            self._loop.add(self._sock, eventloop.POLL_IN, self)
+            self._sock.setblocking(False) # 设置异步
+            # 重新注册到事件循环
+            self._loop.add(self._sock, eventloop.POLL_IN, self) # 注册等待的IO事件
         else:
+            # 读取一个 UDP 包，并取出前 1024 个字节
+            # 注意：如果一个 UDP 包超过 1024 字节，比如：2048 字节。
+            # 一次 recvfrom(1024) 也会消耗整个 UDP 包。这里是认为
+            # DNS 查询返回的 UDP 包都不会超过 1024 字节。
             data, addr = sock.recvfrom(1024)
             if addr[0] not in self._servers:
                 logging.warn('received a packet other than our dns')
@@ -397,9 +412,11 @@ class DNSResolver(object):
 
     def _send_req(self, hostname, qtype):
         req = build_request(hostname, qtype)
+        # self._servers 中存放的是本机/etc/resolv.conf文件中配置的DNS服务器IP
         for server in self._servers:
             logging.debug('resolving %s with type %d using server %s',
                           hostname, qtype, server)
+            # 53端口为DNS服务器所开放,主要用于域名解析
             self._sock.sendto(req, (server, 53))
 
     def resolve(self, hostname, callback):
@@ -425,7 +442,7 @@ class DNSResolver(object):
             arr = self._hostname_to_cb.get(hostname, None)
             if not arr:
                 self._hostname_status[hostname] = STATUS_FIRST
-                self._send_req(hostname, self._QTYPES[0])
+                self._send_req(hostname, self._QTYPES[0]) # self._QTYPES[0] == 1
                 self._hostname_to_cb[hostname] = [callback]
                 self._cb_to_hostname[callback] = hostname
             else:
