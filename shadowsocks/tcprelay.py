@@ -32,6 +32,7 @@ from shadowsocks.common import parse_header, onetimeauth_verify, \
     ONETIMEAUTH_CHUNK_DATA_LEN, ADDRTYPE_AUTH
 
 # we clear at most TIMEOUTS_CLEAN_SIZE timeouts each time
+# 一次清理超时请求的上限
 TIMEOUTS_CLEAN_SIZE = 512
 
 MSG_FASTOPEN = 0x20000000
