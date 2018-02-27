@@ -107,7 +107,7 @@ def parse_ip(addrtype, data, length, offset):
     else:
         return data[offset:offset + length]
 
-
+# 解析报文中的域名信息
 def parse_name(data, offset):
     p = offset
     labels = []
@@ -152,6 +152,7 @@ def parse_name(data, offset):
 #    /                                               /
 #    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
 def parse_record(data, offset, question=False):
+    # 解析应答报文中的data包含的各个字段的信息
     nlen, name = parse_name(data, offset)
     if not question:
         record_type, record_class, record_ttl, record_rdlength = struct.unpack(
@@ -167,25 +168,33 @@ def parse_record(data, offset, question=False):
         return nlen + 4, (name, None, record_type, record_class, None, None)
 
 
+# 解析应答报文data中的各个字段的信息
+# blog.csdn.net/tigerjibo/article/details/6827736
 def parse_header(data):
     if len(data) >= 12:
-        header = struct.unpack('!HBBHHHH', data[:12])
+        header = struct.unpack('!HBBHHHH', data[:12])  # 前12个字节, H2个字节, B一个字节
+        # 标识ID,由发出DNS请求的客户端生成,对应的DNS响应报文中也要置相同的ID
         res_id = header[0]
+        # 0表示查询报文, 1表示响应报文
         res_qr = header[1] & 128
+        # 表示可截断的(truncated)
         res_tc = header[1] & 2
+        # 表示可递归
         res_ra = header[2] & 128
+        # 返回码,通常为0(没有差错)和3(名字差错)
         res_rcode = header[2] & 15
         # assert res_tc == 0
         # assert res_rcode in [0, 3]
-        res_qdcount = header[3]
-        res_ancount = header[4]
-        res_nscount = header[5]
-        res_arcount = header[6]
+        res_qdcount = header[3]  # 无符号16位整数表示报文请求段中的问题记录数
+        res_ancount = header[4]  # 无符号16位整数表示报文回答段中的回答记录数
+        res_nscount = header[5]  # 无符号16位整数表示报文授权段中的授权记录数
+        res_arcount = header[6]  # 无符号16位整数表示报文附加段中的附加记录数
         return (res_id, res_qr, res_tc, res_ra, res_rcode, res_qdcount,
                 res_ancount, res_nscount, res_arcount)
     return None
 
-
+# 解析应答报文信息并利用解析出的信息构建DNSResponse类,
+# DNSResponse类主要包含的信息是DNS查询的域名信息和起对应的IP地址信息
 def parse_response(data):
     try:
         if len(data) >= 12:
@@ -344,6 +353,7 @@ class DNSResolver(object):
         if hostname in self._hostname_status:
             del self._hostname_status[hostname]
 
+    # 处理DNS服务器返回的数据
     def _handle_data(self, data):
         response = parse_response(data)
         if response and response.hostname:
@@ -417,7 +427,7 @@ class DNSResolver(object):
             logging.debug('resolving %s with type %d using server %s',
                           hostname, qtype, server)
             # 53端口为DNS服务器所开放,主要用于域名解析
-            self._sock.sendto(req, (server, 53))
+            self._sock.sendto(req, (server, 53)) # 向DNS服务器发送DNS解析请求
 
     def resolve(self, hostname, callback):
         # ? callback 在哪儿被调用的 ?
