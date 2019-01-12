@@ -149,6 +149,7 @@ class SelectLoop(object):
 class EventLoop(object):
     def __init__(self):
         # 初始化时选择合适的IO多路复用机制
+        # 根据不同系统的选择不同的多路复用实现方式
         if hasattr(select, 'epoll'):
             self._impl = select.epoll()
             model = 'epoll'
@@ -202,7 +203,9 @@ class EventLoop(object):
         while not self._stopping:
             asap = False
             try:
+                print("---debug----", time.time())
                 # 调用合适的多路复用函数, 获取所监听端口的事件
+                # 阻塞在这儿, 等待连接
                 events = self.poll(TIMEOUT_PRECISION)
             except (OSError, IOError) as e:
                 if errno_from_exception(e) in (errno.EPIPE, errno.EINTR):
@@ -219,7 +222,7 @@ class EventLoop(object):
 
             # fd => file descriptor, 是一个int类型的值
             for sock, fd, event in events:
-                handler = self._fdmap.get(fd, None) # value: (f, handler)
+                handler = self._fdmap.get(fd, None)  # value: (f, handler)
                 if handler is not None:
                     handler = handler[1]
                     try:

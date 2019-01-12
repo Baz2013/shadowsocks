@@ -1,11 +1,11 @@
 {
-    "server":"my_server_ip",
-    "server_port":8388,
+    "server":"172.93.35.211",
+    "server_port":28312,
     "local_address": "127.0.0.1",
-    "local_port":1080,
-    "password":"mypassword",
+    "local_port":2082,
+    "password":"qazwsx123",
     "timeout":300,
-    "method":"aes-256-cfb",
+    "method":"rc4-md5",
     "fast_open": false,
     "workers": 1,
     "prefer_ipv6": false

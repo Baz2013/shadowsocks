@@ -26,11 +26,16 @@ import signal
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../'))
 from shadowsocks import shell, daemon, eventloop, tcprelay, udprelay, asyncdns
 
+# sslocal 两个主要功能
+# 1. 做socks5 服务端, 负责监听本地socks5协议的请求
+# 2. 加密数据, 并向远程的ssservser发送数据包
+
 
 def main():
     shell.check_python()
 
     # fix py2exe
+    # 如果将python程序转为exe可执行程序则进入如下配置
     if hasattr(sys, "frozen") and sys.frozen in \
             ("windows_exe", "console_exe"):
         p = os.path.dirname(os.path.abspath(sys.executable))
@@ -44,10 +49,16 @@ def main():
         logging.info("starting local at %s:%d" %
                      (config['local_address'], config['local_port']))
 
+        # 生成dns寻址器
         dns_resolver = asyncdns.DNSResolver()
+        # 生成tcp服务器
         tcp_server = tcprelay.TCPRelay(config, dns_resolver, True)
+        # 生成udp服务器
         udp_server = udprelay.UDPRelay(config, dns_resolver, True)
+
+        # 生成loop循环结构
         loop = eventloop.EventLoop()
+        # 将dns寻址器, tcp服务器, upd服务器加入loop实例
         dns_resolver.add_to_loop(loop)
         tcp_server.add_to_loop(loop)
         udp_server.add_to_loop(loop)
@@ -67,6 +78,7 @@ def main():
     except Exception as e:
         shell.print_exception(e)
         sys.exit(1)
+
 
 if __name__ == '__main__':
     main()

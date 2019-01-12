@@ -56,6 +56,7 @@ CMD_UDP_ASSOCIATE = 3
 # for each handler, it could be at one of several stages:
 
 # as sslocal:
+# stage 0 创建socks5 连接的阶段
 # stage 0 auth METHOD received from local, reply with selection message
 # stage 1 addr received from local, query DNS for remote
 # stage 2 UDP assoc
@@ -306,7 +307,16 @@ class TCPRelayHandler(object):
         :return:
         """
         try:
-            # 是sslocal的话
+            # 是sslocal的话, 认证协商完成后, socks5客户端开始发送具体的请求
+            # | VER | CMD | RSV | ATYP | DST.ADDR | DST.PORT |
+            # | 1   | 1   | 1   | 1    | Variable | 2        |
+            # VER
+            # CMD: 请求类型, 0x01(CONNECT), 0x02(BIND), 0x03(UDP ASSOCIATE)
+            # RSV: 保留字段, 取固定值0x00
+            # ATYP: DST.ADDR地址类型, 0x01(IPV4), 0x03(域名), 0x04(IPV6)
+            # DST.ADDR: 请求目的地址
+            # DST.PORT: 请求目的端口
+            # 备注: CONNECT 用于TCP场景, BIND 主要用于FTP等罕见场景, UDP ASSOCIATE用于UDP场景
             if self._is_local:
                 cmd = common.ord(data[1])
                 if cmd == CMD_UDP_ASSOCIATE:
@@ -336,7 +346,8 @@ class TCPRelayHandler(object):
             if header_result is None:
                 raise Exception('can not parse header')
             addrtype, remote_addr, remote_port, header_length = header_result
-            # 调试输出=> connecting www.google.com:443 from 123.232.37.134:64907
+            # ssserver模式调试输出=> connecting www.google.com:443 from 123.232.37.134:64907
+            # sslocal模式调试输出=> connecting www.google.com:443 from 127.0.0.1:58133
             logging.info('connecting %s:%d from %s:%d' %
                          (common.to_str(remote_addr), remote_port,
                           self._client_address[0], self._client_address[1]))
@@ -359,8 +370,19 @@ class TCPRelayHandler(object):
             self._remote_address = (common.to_str(remote_addr), remote_port)
             # pause reading
             self._update_stream(STREAM_UP, WAIT_STATUS_WRITING)
+            # sslocal模式, stage 3, DNS resolved, connect to remote
             self._stage = STAGE_DNS
+            # sslocal服务端收到socks请求，处理后返回, 响应格式为
+            # | VER | REP | RSV | ATYP | BND.ADDR | BND.PORT |
+            # | 1   | 1   | 1   | 1    | Variable | 2        |
+            # VER
+            # REP: 返回值, 0x00(succeeded), 0x01(general SOCKS server failure).....
+            # RSV
+            # ATYP: BND.ADDR地址类型, 0x01(IPV4), 0x03(域名), 0x04(IPV6)
+            # BND.ADDR: 服务端绑定地址
+            # BND.PORT: 服务端绑定端口
             if self._is_local:
+                print("sslocal服务端收到请求后，处理后返回")
                 # forward address to remote
                 self._write_to_sock((b'\x05\x00\x00\x01'
                                      b'\x00\x00\x00\x00\x10\x10'),
@@ -371,6 +393,7 @@ class TCPRelayHandler(object):
                     data = common.chr(addrtype | ADDRTYPE_AUTH) + data[1:]
                     key = self._encryptor.cipher_iv + self._encryptor.key
                     data += onetimeauth_gen(data, key)
+                # 发送到ssserver服务器前,加密数据
                 data_to_send = self._encryptor.encrypt(data)
                 self._data_to_write_to_remote.append(data_to_send)
                 # notice here may go into _handle_dns_resolved directly
@@ -505,7 +528,10 @@ class TCPRelayHandler(object):
         if self._is_local:
             if self._ota_enable:
                 data = self._ota_chunk_data_gen(data)
+
+            # 转发数据前, 先把数据进行加密
             data = self._encryptor.encrypt(data)
+            # 将数据发送到远程ssserver服务
             self._write_to_sock(data, self._remote_sock)
         # 是ssserver的话
         else:
@@ -515,6 +541,11 @@ class TCPRelayHandler(object):
                 self._write_to_sock(data, self._remote_sock)
         return
 
+    # socks5 客户端发起连接后, 和服务端进行协商认证方法阶段
+    # VER, NMETHODS, METHODS
+    # VER: 协议版本号, 1个字节长度, 固定取值0x05
+    # NMETHODS: 1个字节长度, 客户端支持的认证机制数目
+    # METHODS: 1-255个字节长度, 客户端支持的认证机制列表
     def _check_auth_method(self, data):
         # VER, NMETHODS, and at least 1 METHODS
         if len(data) < 3:
@@ -531,6 +562,9 @@ class TCPRelayHandler(object):
             raise BadSocksHeader
         noauth_exist = False
         for method in data[2:]:
+            # 0 无用户名密码模式
+            # socks5 客户端跟sslocal服务建立连接的时候, 只支持无用户名密码的模式
+            # 其他模式未实现
             if common.ord(method) == METHOD_NOAUTH:
                 noauth_exist = True
                 break
@@ -546,28 +580,33 @@ class TCPRelayHandler(object):
             self.destroy()
             return
         except NoAcceptableMethods:
+            # 告诉socks5客户端, 建立连接失败
             self._write_to_sock(b'\x05\xff', self._local_sock)
             self.destroy()
             return
-
+        # sslocal 返回数据给socks5客户端, 运行建立连接
         self._write_to_sock(b'\x05\00', self._local_sock)
+        # stage 1 addr received from local, query DNS for remote
+        # 将状态置为1, 进入DNS查询阶段
         self._stage = STAGE_ADDR
 
     def _on_local_read(self):
         # handle all local read events and dispatch them to methods for
         # each stage
-        # 读取客户端发送过来的数据
+        # 读取socks5客户端发送过来的数据(浏览器或者其他...)
         if not self._local_sock:
             return
         is_local = self._is_local
         data = None
         try:
             data = self._local_sock.recv(BUF_SIZE)
+            print("data from client-----" + str(data))
         except (OSError, IOError) as e:
             if eventloop.errno_from_exception(e) in \
                     (errno.ETIMEDOUT, errno.EAGAIN, errno.EWOULDBLOCK):
                 return
         if not data:
+            # ??? 为什么要destroy
             self.destroy()
             return
         self._update_activity(len(data))
@@ -576,15 +615,22 @@ class TCPRelayHandler(object):
             data = self._encryptor.decrypt(data)
             if not data:
                 return
+        # 已与远程服务器(ssserver)建立连接
+        # 直接转发数据
+        # remote connected, piping local and remote
         if self._stage == STAGE_STREAM:
             self._handle_stage_stream(data)
             return
+        # 本地模式(sslocal) 建立socks连接阶段
         elif is_local and self._stage == STAGE_INIT:
             self._handle_stage_init(data)
         elif self._stage == STAGE_CONNECTING:
             self._handle_stage_connecting(data)
+        # 1. 本地模式(sslocal), 认证协商完成后, socks5客户端开始发送具体的请求
+        # 或者 2. 远程模式(ssserver),  建立连接阶段
         elif (is_local and self._stage == STAGE_ADDR) or \
                 (not is_local and self._stage == STAGE_INIT):
+            print("认证协商完成后, socks5客户端开始发送具体的请求")
             self._handle_stage_addr(data)
 
     def _on_remote_read(self):
