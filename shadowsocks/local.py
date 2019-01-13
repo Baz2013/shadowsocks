@@ -58,6 +58,7 @@ def main():
 
         # 生成loop循环结构
         loop = eventloop.EventLoop()
+        # 反应器模式, 在 eventloop 中将事件一层一层的传递给真正的处理者
         # 将dns寻址器, tcp服务器, upd服务器加入loop实例
         dns_resolver.add_to_loop(loop)
         tcp_server.add_to_loop(loop)

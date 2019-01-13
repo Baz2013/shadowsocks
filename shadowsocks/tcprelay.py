@@ -147,7 +147,7 @@ class TCPRelayHandler(object):
         if is_local:
             self._chosen_server = self._get_a_server()
         fd_to_handlers[local_sock.fileno()] = self
-        local_sock.setblocking(False) # 设置为非阻塞模式
+        local_sock.setblocking(False)  # 设置为非阻塞模式
         # the TCP_NODELAY option can be used to tell the operating system that any data
         # passed to socket.send() should immediately be sent to the client without being
         # buffered by the operating system
@@ -167,9 +167,11 @@ class TCPRelayHandler(object):
     def remote_address(self):
         return self._remote_address
 
+    # 获取一个远程代理(ssserver)
     def _get_a_server(self):
         server = self._config['server']
         server_port = self._config['server_port']
+        # ??? 这个地方是不是一个bug
         if type(server_port) == list:
             server_port = random.choice(server_port)
         if type(server) == list:
@@ -417,6 +419,7 @@ class TCPRelayHandler(object):
             self.destroy()
 
     def _create_remote_socket(self, ip, port):
+        # 名字与地址的转换
         addrs = socket.getaddrinfo(ip, port, 0, socket.SOCK_STREAM,
                                    socket.SOL_TCP)
         if len(addrs) == 0:
@@ -429,6 +432,9 @@ class TCPRelayHandler(object):
         remote_sock = socket.socket(af, socktype, proto)
         self._remote_sock = remote_sock
         self._fd_to_handlers[remote_sock.fileno()] = self
+        # 将套接字设置为非阻塞的,
+        # 此时对 connect 的调用要么立刻成功建立 TCP 连接，
+        # 要么抛出含有 errno.EINPROGRESS 的异常
         remote_sock.setblocking(False)
         remote_sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
         return remote_sock
@@ -880,12 +886,14 @@ class TCPRelay(object):
                         eventloop.EVENT_NAMES.get(event, event))
         # 如果这个sock是自身的_server_socket,则建立连接
         if sock == self._server_socket:
+            print("-----------------sock == self._server_socket")
             if event & eventloop.POLL_ERR:
                 # TODO
                 raise Exception('server_socket error')
             try:
                 logging.debug('accept')
-                conn = self._server_socket.accept() # 返回(socket object, address info)
+                conn = self._server_socket.accept()  # 返回(socket object, address info)
+                print("---------conn:" + str(conn))
                 # 对于每一个监听的端口, 都会有一个 TCPRelay, 对于每一次连接, 都有 TCPRelayHandler 来处理这个请求
                 # 将TCPRelayHandler实例添加到self._fd_to_handlers中去了
                 TCPRelayHandler(self, self._fd_to_handlers,
@@ -901,6 +909,7 @@ class TCPRelay(object):
                     if self._config['verbose']:
                         traceback.print_exc()
         else:
+            print("-----------------sock != self._server_socket")
             if sock:
                 handler = self._fd_to_handlers.get(fd, None)
                 if handler:

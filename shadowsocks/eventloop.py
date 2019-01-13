@@ -174,6 +174,7 @@ class EventLoop(object):
 
     def add(self, f, mode, handler):
         # handler 为TCPRelay或者UDPRelay的实例
+        print("-----------add handler")
         fd = f.fileno()
         self._fdmap[fd] = (f, handler)
         self._impl.register(fd, mode)
@@ -223,10 +224,11 @@ class EventLoop(object):
             # fd => file descriptor, 是一个int类型的值
             for sock, fd, event in events:
                 handler = self._fdmap.get(fd, None)  # value: (f, handler)
+                print("---------handler:" + str(handler))
                 if handler is not None:
                     handler = handler[1]
                     try:
-                        # handler 可能是 TCPRelay、UDPRelay 或 DNSResolver
+                        # handler 可能是 TCPRelay、UDPRelay 或 DNSResolver的实例
                         handler.handle_event(sock, fd, event)
                     except (OSError, IOError) as e:
                         shell.print_exception(e)
